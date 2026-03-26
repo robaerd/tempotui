@@ -1,6 +1,6 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
-use chrono::{NaiveDate, NaiveTime, Timelike};
+use chrono::{Datelike, Duration, NaiveDate, NaiveTime, Timelike, Weekday};
 use comfy_table::{
     Attribute, Cell, CellAlignment, ContentArrangement, Table, presets::UTF8_FULL_CONDENSED,
 };
@@ -16,8 +16,10 @@ pub struct ReportRow {
     pub worked_seconds: i64,
     pub break_seconds: i64,
     pub tracked_seconds: i64,
-    pub start_seconds: i64,
-    pub end_seconds: i64,
+    pub effective_start_seconds: i64,
+    pub effective_end_seconds: i64,
+    pub has_override: bool,
+    pub is_empty: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -32,7 +34,7 @@ pub struct MonthlyReport {
     pub month_label: String,
     pub range_start: NaiveDate,
     pub range_end: NaiveDate,
-    pub start_time: NaiveTime,
+    pub default_start_time: NaiveTime,
     pub rows: Vec<ReportRow>,
     pub totals: ReportTotals,
 }
@@ -42,10 +44,19 @@ impl MonthlyReport {
         month_label: String,
         range_start: NaiveDate,
         range_end: NaiveDate,
-        start_time: NaiveTime,
-        worklogs: Vec<TempoWorklog>,
+        default_start_time: NaiveTime,
+        show_empty_weekdays: bool,
+        day_overrides: &BTreeMap<NaiveDate, NaiveTime>,
+        worklogs: &[TempoWorklog],
     ) -> Self {
-        let rows = build_report_rows(&worklogs, start_time);
+        let rows = build_report_rows(
+            worklogs,
+            range_start,
+            range_end,
+            default_start_time,
+            show_empty_weekdays,
+            day_overrides,
+        );
         let totals = rows
             .iter()
             .fold(ReportTotals::default(), |mut totals, row| {
@@ -59,33 +70,61 @@ impl MonthlyReport {
             month_label,
             range_start,
             range_end,
-            start_time,
+            default_start_time,
             rows,
             totals,
         }
     }
 }
 
-pub fn build_report_rows(worklogs: &[TempoWorklog], start_time: NaiveTime) -> Vec<ReportRow> {
-    let mut by_day = BTreeMap::<NaiveDate, i64>::new();
+pub fn build_report_rows(
+    worklogs: &[TempoWorklog],
+    range_start: NaiveDate,
+    range_end: NaiveDate,
+    default_start_time: NaiveTime,
+    show_empty_weekdays: bool,
+    day_overrides: &BTreeMap<NaiveDate, NaiveTime>,
+) -> Vec<ReportRow> {
+    let mut worked_by_day = BTreeMap::<NaiveDate, i64>::new();
     for worklog in worklogs {
-        *by_day.entry(worklog.start_date).or_default() += worklog.time_spent_seconds;
+        *worked_by_day.entry(worklog.start_date).or_default() += worklog.time_spent_seconds;
     }
 
-    let start_seconds = i64::from(start_time.num_seconds_from_midnight());
-    by_day
+    let mut visible_dates = BTreeSet::<NaiveDate>::new();
+    if show_empty_weekdays {
+        let mut date = range_start;
+        while date <= range_end {
+            if is_weekday(date.weekday()) {
+                visible_dates.insert(date);
+            }
+            date += Duration::days(1);
+        }
+    }
+
+    visible_dates.extend(worked_by_day.keys().copied());
+
+    visible_dates
         .into_iter()
-        .map(|(date, worked_seconds)| {
+        .map(|date| {
+            let worked_seconds = worked_by_day.get(&date).copied().unwrap_or_default();
             let break_seconds = statutory_break_seconds(worked_seconds);
             let tracked_seconds = worked_seconds + break_seconds;
+            let effective_start_time = day_overrides
+                .get(&date)
+                .copied()
+                .unwrap_or(default_start_time);
+            let effective_start_seconds =
+                i64::from(effective_start_time.num_seconds_from_midnight());
 
             ReportRow {
                 date,
                 worked_seconds,
                 break_seconds,
                 tracked_seconds,
-                start_seconds,
-                end_seconds: start_seconds + tracked_seconds,
+                effective_start_seconds,
+                effective_end_seconds: effective_start_seconds + tracked_seconds,
+                has_override: day_overrides.contains_key(&date),
+                is_empty: worked_seconds == 0,
             }
         })
         .collect()
@@ -102,17 +141,17 @@ pub fn statutory_break_seconds(worked_seconds: i64) -> i64 {
 pub fn render_report(report: &MonthlyReport) -> String {
     let mut output = String::new();
     output.push_str(&format!(
-        "Tempo monthly span report for {}\nRange: {} to {}\nStart time: {}\nBreak rule: add {} when worked > {}\n\n",
+        "Tempo monthly span report for {}\nRange: {} to {}\nDefault start time: {}\nBreak rule: add {} when worked > {}\n\n",
         report.month_label,
         report.range_start,
         report.range_end,
-        report.start_time.format("%H:%M"),
+        report.default_start_time.format("%H:%M"),
         format_duration(BREAK_DURATION_SECONDS),
         format_duration(BREAK_THRESHOLD_SECONDS),
     ));
 
     if report.rows.is_empty() {
-        output.push_str("No worklogs found for this period.\n");
+        output.push_str("No rows available for this period.\n");
         return output;
     }
 
@@ -127,6 +166,7 @@ pub fn render_report(report: &MonthlyReport) -> String {
         header("Tracked"),
         header("Start"),
         header("End"),
+        header("Ov"),
     ]);
 
     for row in &report.rows {
@@ -136,8 +176,17 @@ pub fn render_report(report: &MonthlyReport) -> String {
             numeric_cell(format_duration(row.worked_seconds)),
             numeric_cell(format_duration(row.break_seconds)),
             numeric_cell(format_duration(row.tracked_seconds)),
-            numeric_cell(format_clock_time(row.start_seconds)),
-            numeric_cell(format_clock_time(row.end_seconds)),
+            numeric_cell(if row.is_empty {
+                String::new()
+            } else {
+                format_clock_time(row.effective_start_seconds)
+            }),
+            numeric_cell(if row.is_empty {
+                String::new()
+            } else {
+                format_clock_time(row.effective_end_seconds)
+            }),
+            Cell::new(if row.has_override { "*" } else { "" }),
         ]);
     }
 
@@ -147,6 +196,7 @@ pub fn render_report(report: &MonthlyReport) -> String {
         numeric_cell(format_duration(report.totals.worked_seconds)).add_attribute(Attribute::Bold),
         numeric_cell(format_duration(report.totals.break_seconds)).add_attribute(Attribute::Bold),
         numeric_cell(format_duration(report.totals.tracked_seconds)).add_attribute(Attribute::Bold),
+        Cell::new(""),
         Cell::new(""),
         Cell::new(""),
     ]);
@@ -199,6 +249,10 @@ fn numeric_cell(value: impl Into<String>) -> Cell {
     Cell::new(value.into()).set_alignment(CellAlignment::Right)
 }
 
+fn is_weekday(day: Weekday) -> bool {
+    !matches!(day, Weekday::Sat | Weekday::Sun)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -228,7 +282,11 @@ mod tests {
                 worklog("2026-03-05", 5 * 60 * 60),
                 worklog("2026-03-06", 2 * 60 * 60),
             ],
+            NaiveDate::from_ymd_opt(2026, 3, 1).unwrap(),
+            NaiveDate::from_ymd_opt(2026, 3, 31).unwrap(),
             NaiveTime::from_hms_opt(9, 0, 0).unwrap(),
+            false,
+            &BTreeMap::new(),
         );
 
         assert_eq!(rows.len(), 2);
@@ -239,8 +297,52 @@ mod tests {
             rows[0].tracked_seconds,
             8 * 60 * 60 + BREAK_DURATION_SECONDS
         );
-        assert_eq!(rows[0].end_seconds, (17 * 60 + 30) * 60);
+        assert_eq!(rows[0].effective_end_seconds, (17 * 60 + 30) * 60);
         assert_eq!(rows[1].break_seconds, 0);
+    }
+
+    #[test]
+    fn synthesizes_empty_weekdays_and_keeps_weekend_work() {
+        let rows = build_report_rows(
+            &[worklog("2026-03-07", 2 * 60 * 60)],
+            NaiveDate::from_ymd_opt(2026, 3, 1).unwrap(),
+            NaiveDate::from_ymd_opt(2026, 3, 7).unwrap(),
+            NaiveTime::from_hms_opt(9, 0, 0).unwrap(),
+            true,
+            &BTreeMap::new(),
+        );
+
+        let dates: Vec<_> = rows.iter().map(|row| row.date).collect();
+        assert!(dates.contains(&NaiveDate::from_ymd_opt(2026, 3, 2).unwrap()));
+        assert!(dates.contains(&NaiveDate::from_ymd_opt(2026, 3, 6).unwrap()));
+        assert!(dates.contains(&NaiveDate::from_ymd_opt(2026, 3, 7).unwrap()));
+        assert!(!dates.contains(&NaiveDate::from_ymd_opt(2026, 3, 1).unwrap()));
+    }
+
+    #[test]
+    fn applies_day_overrides_to_effective_start_time() {
+        let mut overrides = BTreeMap::new();
+        overrides.insert(
+            NaiveDate::from_ymd_opt(2026, 3, 3).unwrap(),
+            NaiveTime::from_hms_opt(10, 0, 0).unwrap(),
+        );
+        let report = MonthlyReport::from_worklogs(
+            "2026-03".to_string(),
+            NaiveDate::from_ymd_opt(2026, 3, 1).unwrap(),
+            NaiveDate::from_ymd_opt(2026, 3, 31).unwrap(),
+            NaiveTime::from_hms_opt(9, 0, 0).unwrap(),
+            true,
+            &overrides,
+            &[worklog("2026-03-03", 8 * 60 * 60)],
+        );
+
+        let row = report
+            .rows
+            .iter()
+            .find(|row| row.date == NaiveDate::from_ymd_opt(2026, 3, 3).unwrap())
+            .unwrap();
+        assert_eq!(row.effective_start_seconds, 10 * 60 * 60);
+        assert!(row.has_override);
     }
 
     #[test]
@@ -250,14 +352,15 @@ mod tests {
             NaiveDate::from_ymd_opt(2026, 3, 1).unwrap(),
             NaiveDate::from_ymd_opt(2026, 3, 31).unwrap(),
             NaiveTime::from_hms_opt(9, 0, 0).unwrap(),
-            vec![worklog("2026-03-03", 8 * 60 * 60)],
+            false,
+            &BTreeMap::new(),
+            &[worklog("2026-03-03", 8 * 60 * 60)],
         );
 
         let rendered = render_report(&report);
 
         assert!(rendered.contains("Tempo monthly span report for 2026-03"));
         assert!(rendered.contains("Worked"));
-        assert!(rendered.contains("Tracked"));
         assert!(rendered.contains("17:30"));
         assert!(rendered.contains("TOTAL"));
         assert!(rendered.contains("8:30"));

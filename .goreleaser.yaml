@@ -1,0 +1,77 @@
+version: 2
+project_name: tempotui
+
+builds:
+  - id: darwin
+    builder: rust
+    binary: tempotui
+    tool: cargo-zigbuild
+    targets:
+      - x86_64-apple-darwin
+      - aarch64-apple-darwin
+  - id: linux
+    builder: rust
+    binary: tempotui
+    tool: cargo-zigbuild
+    targets:
+      - x86_64-unknown-linux-gnu
+      - aarch64-unknown-linux-gnu
+
+archives:
+  - id: darwin
+    ids:
+      - darwin
+    formats:
+      - tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+  - id: linux
+    ids:
+      - linux
+    formats:
+      - tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+
+notarize:
+  macos:
+    - ids:
+        - darwin
+      enabled: '{{ and (isEnvSet "MACOS_SIGN_P12") (isEnvSet "MACOS_SIGN_PASSWORD") (isEnvSet "MACOS_NOTARY_KEY") (isEnvSet "MACOS_NOTARY_KEY_ID") (isEnvSet "MACOS_NOTARY_ISSUER_ID") }}'
+      sign:
+        certificate: "{{ .Env.MACOS_SIGN_P12 }}"
+        password: "{{ .Env.MACOS_SIGN_PASSWORD }}"
+      notarize:
+        issuer_id: "{{ .Env.MACOS_NOTARY_ISSUER_ID }}"
+        key_id: "{{ .Env.MACOS_NOTARY_KEY_ID }}"
+        key: "{{ .Env.MACOS_NOTARY_KEY }}"
+        wait: true
+        timeout: 20m
+
+homebrew_casks:
+  - name: tempotui
+    ids:
+      - darwin
+    binaries:
+      - tempotui
+    repository:
+      owner: robaerd
+      name: homebrew-tap
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Casks
+    commit_msg_template: "Brew cask update for {{ .ProjectName }} version {{ .Tag }}"
+    homepage: "https://github.com/robaerd/tempotui"
+    description: "Terminal UI for reviewing Tempo monthly worklogs and adjusting start times"
+    caveats: |
+      On first launch, open tempotui and add your Tempo and Jira credentials in Settings.
+      The config file is stored at ~/.config/tempotui/config.toml unless XDG_CONFIG_HOME is set.

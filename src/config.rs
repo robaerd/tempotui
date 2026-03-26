@@ -1,22 +1,18 @@
-use std::env;
-
 use chrono::{Datelike, NaiveDate, NaiveTime};
 use clap::Parser;
 use thiserror::Error;
 
-const DEFAULT_BASE_URL: &str = "https://api.eu.tempo.io";
-
 #[derive(Debug, Parser)]
 #[command(
-    name = "tempo-log",
-    about = "Print a monthly Tempo report with synthetic start/end times and statutory break handling."
+    name = "tempotui",
+    about = "Open the TempoTUI app for monthly worklog review and adjustment."
 )]
 pub struct Cli {
     #[arg(long, value_name = "YYYY-MM")]
     pub month: Option<String>,
 
-    #[arg(long, default_value = "09:00", value_name = "HH:MM")]
-    pub start: String,
+    #[arg(long, value_name = "HH:MM")]
+    pub start: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -28,19 +24,13 @@ pub struct MonthWindow {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AppConfig {
-    pub tempo_api_token: String,
-    pub tempo_account_id: String,
-    pub base_url: String,
-    pub month: MonthWindow,
-    pub start_time: NaiveTime,
+    pub today: NaiveDate,
+    pub initial_month: MonthWindow,
+    pub cli_start_time: Option<NaiveTime>,
 }
 
 #[derive(Debug, Error)]
 pub enum ConfigError {
-    #[error("Missing required environment variable `{key}`.")]
-    MissingEnv { key: &'static str },
-    #[error("Environment variable `{key}` must not be empty.")]
-    EmptyEnv { key: &'static str },
     #[error("Invalid month `{value}`. Expected the format `YYYY-MM`.")]
     InvalidMonth { value: String },
     #[error("Invalid start time `{value}`. Expected the format `HH:MM`.")]
@@ -49,40 +39,68 @@ pub enum ConfigError {
 
 impl AppConfig {
     pub fn load(cli: Cli, today: NaiveDate) -> Result<Self, ConfigError> {
-        let tempo_api_token = required_env("TEMPO_API_TOKEN")?;
-        let tempo_account_id = required_env("TEMPO_ACCOUNT_ID")?;
-        let base_url =
-            optional_env("TEMPO_BASE_URL").unwrap_or_else(|| DEFAULT_BASE_URL.to_string());
-        let month = resolve_month_window(cli.month.as_deref(), today)?;
-        let start_time = parse_start_time(&cli.start)?;
+        let initial_month = match cli.month.as_deref() {
+            Some(value) => MonthWindow::from_label(value)?,
+            None => MonthWindow::current(today),
+        };
+        let cli_start_time = cli.start.as_deref().map(parse_start_time).transpose()?;
 
         Ok(Self {
-            tempo_api_token,
-            tempo_account_id,
-            base_url,
-            month,
-            start_time,
+            today,
+            initial_month,
+            cli_start_time,
         })
     }
 }
 
-fn required_env(key: &'static str) -> Result<String, ConfigError> {
-    let value = env::var(key).map_err(|_| ConfigError::MissingEnv { key })?;
-    let trimmed = value.trim();
-    if trimmed.is_empty() {
-        return Err(ConfigError::EmptyEnv { key });
+impl MonthWindow {
+    pub fn current(today: NaiveDate) -> Self {
+        Self::from_year_month(today.year(), today.month())
+            .expect("current date should always resolve to a valid month window")
     }
-    Ok(trimmed.to_string())
+
+    pub fn from_label(value: &str) -> Result<Self, ConfigError> {
+        let (year, month) = parse_month_spec(value)?;
+        Self::from_year_month(year, month)
+    }
+
+    pub fn shift_months(&self, delta: i32) -> Self {
+        let month_index = self.start.year() * 12 + self.start.month0() as i32 + delta;
+        let year = month_index.div_euclid(12);
+        let month = month_index.rem_euclid(12) as u32 + 1;
+        Self::from_year_month(year, month)
+            .expect("shifted month index should always resolve to a valid month window")
+    }
+
+    fn from_year_month(year: i32, month: u32) -> Result<Self, ConfigError> {
+        let start =
+            NaiveDate::from_ymd_opt(year, month, 1).ok_or_else(|| ConfigError::InvalidMonth {
+                value: format!("{year:04}-{month:02}"),
+            })?;
+
+        let (next_year, next_month) = if month == 12 {
+            (year + 1, 1)
+        } else {
+            (year, month + 1)
+        };
+
+        let next_start = NaiveDate::from_ymd_opt(next_year, next_month, 1).ok_or_else(|| {
+            ConfigError::InvalidMonth {
+                value: format!("{year:04}-{month:02}"),
+            }
+        })?;
+
+        Ok(Self {
+            label: format!("{year:04}-{month:02}"),
+            start,
+            end: next_start
+                .pred_opt()
+                .expect("next month start must have a previous day"),
+        })
+    }
 }
 
-fn optional_env(key: &'static str) -> Option<String> {
-    env::var(key)
-        .ok()
-        .map(|value| value.trim().trim_end_matches('/').to_string())
-        .filter(|value| !value.is_empty())
-}
-
-fn parse_start_time(value: &str) -> Result<NaiveTime, ConfigError> {
+pub fn parse_start_time(value: &str) -> Result<NaiveTime, ConfigError> {
     if value.len() != 5 || value.as_bytes().get(2).is_none_or(|byte| *byte != b':') {
         return Err(ConfigError::InvalidStartTime {
             value: value.to_string(),
@@ -91,42 +109,6 @@ fn parse_start_time(value: &str) -> Result<NaiveTime, ConfigError> {
 
     NaiveTime::parse_from_str(value, "%H:%M").map_err(|_| ConfigError::InvalidStartTime {
         value: value.to_string(),
-    })
-}
-
-fn resolve_month_window(
-    month_arg: Option<&str>,
-    today: NaiveDate,
-) -> Result<MonthWindow, ConfigError> {
-    let (year, month) = match month_arg {
-        Some(value) => parse_month_spec(value)?,
-        None => (today.year(), today.month()),
-    };
-
-    let start =
-        NaiveDate::from_ymd_opt(year, month, 1).ok_or_else(|| ConfigError::InvalidMonth {
-            value: format!("{year:04}-{month:02}"),
-        })?;
-
-    let (next_year, next_month) = if month == 12 {
-        (year + 1, 1)
-    } else {
-        (year, month + 1)
-    };
-
-    let next_start = NaiveDate::from_ymd_opt(next_year, next_month, 1).ok_or_else(|| {
-        ConfigError::InvalidMonth {
-            value: format!("{year:04}-{month:02}"),
-        }
-    })?;
-    let end = next_start
-        .pred_opt()
-        .expect("next month start must have a previous day");
-
-    Ok(MonthWindow {
-        label: format!("{year:04}-{month:02}"),
-        start,
-        end,
     })
 }
 
@@ -163,33 +145,45 @@ mod tests {
 
     #[test]
     fn resolves_current_month_when_no_argument_is_given() {
-        let window =
-            resolve_month_window(None, NaiveDate::from_ymd_opt(2026, 3, 20).unwrap()).unwrap();
+        let config = AppConfig::load(
+            Cli {
+                month: None,
+                start: None,
+            },
+            NaiveDate::from_ymd_opt(2026, 3, 20).unwrap(),
+        )
+        .unwrap();
 
-        assert_eq!(window.label, "2026-03");
-        assert_eq!(window.start, NaiveDate::from_ymd_opt(2026, 3, 1).unwrap());
-        assert_eq!(window.end, NaiveDate::from_ymd_opt(2026, 3, 31).unwrap());
+        assert_eq!(config.initial_month.label, "2026-03");
+        assert_eq!(
+            config.initial_month.start,
+            NaiveDate::from_ymd_opt(2026, 3, 1).unwrap()
+        );
+        assert_eq!(
+            config.initial_month.end,
+            NaiveDate::from_ymd_opt(2026, 3, 31).unwrap()
+        );
     }
 
     #[test]
     fn parses_specific_month_and_handles_year_boundary() {
-        let window = resolve_month_window(
-            Some("2025-12"),
-            NaiveDate::from_ymd_opt(2026, 3, 20).unwrap(),
-        )
-        .unwrap();
+        let window = MonthWindow::from_label("2025-12").unwrap();
 
         assert_eq!(window.start, NaiveDate::from_ymd_opt(2025, 12, 1).unwrap());
         assert_eq!(window.end, NaiveDate::from_ymd_opt(2025, 12, 31).unwrap());
     }
 
     #[test]
+    fn shifts_month_forward_and_backward() {
+        let march = MonthWindow::from_label("2026-03").unwrap();
+
+        assert_eq!(march.shift_months(-1).label, "2026-02");
+        assert_eq!(march.shift_months(1).label, "2026-04");
+    }
+
+    #[test]
     fn rejects_invalid_month_values() {
-        let err = resolve_month_window(
-            Some("2025-13"),
-            NaiveDate::from_ymd_opt(2026, 3, 20).unwrap(),
-        )
-        .unwrap_err();
+        let err = MonthWindow::from_label("2025-13").unwrap_err();
 
         assert!(err.to_string().contains("Expected the format `YYYY-MM`"));
     }

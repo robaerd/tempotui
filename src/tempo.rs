@@ -1,19 +1,12 @@
-use std::{thread, time::Duration};
-
 use chrono::NaiveDate;
 use reqwest::{
     StatusCode, Url,
     blocking::{Client, Response},
-    header::RETRY_AFTER,
 };
 use serde::Deserialize;
 use thiserror::Error;
 
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
-const MAX_REQUEST_ATTEMPTS: usize = 3;
-const BASE_RETRY_DELAY: Duration = Duration::from_millis(250);
-const MAX_RETRY_DELAY: Duration = Duration::from_secs(5);
+use crate::http::{build_blocking_client, response_details, send_get_with_retry};
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct TempoWorklog {
@@ -53,7 +46,7 @@ pub enum TempoError {
         source: reqwest::Error,
     },
     #[error(
-        "Tempo returned {status} for `{url}`. Check `TEMPO_API_TOKEN`, `TEMPO_ACCOUNT_ID`, and `TEMPO_BASE_URL`. Tempo commonly returns 401 when the token is valid for a different region.{details}"
+        "Tempo returned {status} for `{url}`. Check the saved Tempo API token, account ID, and base URL in Connection Setup. Tempo commonly returns 401 when the token is valid for a different region.{details}"
     )]
     HttpStatus {
         status: StatusCode,
@@ -85,12 +78,7 @@ impl TempoClient {
         let base_url = Url::parse(&base_url).map_err(|_| TempoError::InvalidBaseUrl {
             value: base_url.clone(),
         })?;
-        let client = Client::builder()
-            .connect_timeout(CONNECT_TIMEOUT)
-            .timeout(REQUEST_TIMEOUT)
-            .user_agent("tempo-log/0.1.0")
-            .build()
-            .map_err(TempoError::ClientBuild)?;
+        let client = build_blocking_client("tempotui/0.1.0").map_err(TempoError::ClientBuild)?;
 
         Ok(Self {
             client,
@@ -142,35 +130,16 @@ impl TempoClient {
     }
 
     fn send(&self, url: Url) -> Result<Response, TempoError> {
-        for attempt in 1..=MAX_REQUEST_ATTEMPTS {
-            match self.client.get(url.clone()).bearer_auth(&self.token).send() {
-                Ok(response) if response.status().is_success() => return Ok(response),
-                Ok(response) => {
-                    let should_retry =
-                        attempt < MAX_REQUEST_ATTEMPTS && is_retryable_status(response.status());
-                    let retry_delay = retry_delay_for_response(&response, attempt);
-                    if should_retry {
-                        thread::sleep(retry_delay);
-                        continue;
-                    }
-                    return Err(http_status_error(url, response));
-                }
-                Err(source) => {
-                    let should_retry =
-                        attempt < MAX_REQUEST_ATTEMPTS && is_retryable_request_error(&source);
-                    if should_retry {
-                        thread::sleep(exponential_backoff(attempt));
-                        continue;
-                    }
-                    return Err(TempoError::Request {
-                        url: url.to_string(),
-                        source,
-                    });
-                }
-            }
-        }
-
-        unreachable!("Tempo request loop must return or error before exhausting attempts");
+        send_get_with_retry(
+            &self.client,
+            url,
+            |request| request.bearer_auth(&self.token),
+            http_status_error,
+            |url, source| TempoError::Request {
+                url: url.to_string(),
+                source,
+            },
+        )
     }
 
     fn decode(&self, url: Url, response: Response) -> Result<WorklogPage, TempoError> {
@@ -217,45 +186,8 @@ fn origin_string(url: &Url) -> String {
     }
 }
 
-fn is_retryable_status(status: StatusCode) -> bool {
-    status == StatusCode::TOO_MANY_REQUESTS || status.is_server_error()
-}
-
-fn is_retryable_request_error(error: &reqwest::Error) -> bool {
-    error.is_timeout() || error.is_connect()
-}
-
-fn retry_delay_for_response(response: &Response, attempt: usize) -> Duration {
-    response
-        .headers()
-        .get(RETRY_AFTER)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.parse::<u64>().ok())
-        .map(Duration::from_secs)
-        .map(|delay| delay.min(MAX_RETRY_DELAY))
-        .unwrap_or_else(|| exponential_backoff(attempt))
-}
-
-fn exponential_backoff(attempt: usize) -> Duration {
-    let multiplier = 1u32 << (attempt.saturating_sub(1) as u32);
-    BASE_RETRY_DELAY
-        .checked_mul(multiplier)
-        .unwrap_or(MAX_RETRY_DELAY)
-        .min(MAX_RETRY_DELAY)
-}
-
 fn http_status_error(url: Url, response: Response) -> TempoError {
-    let status = response.status();
-    let body = response.text().unwrap_or_default();
-    let excerpt = body.trim();
-    let details = if excerpt.is_empty() {
-        String::new()
-    } else {
-        format!(
-            " Response excerpt: {}",
-            excerpt.chars().take(160).collect::<String>()
-        )
-    };
+    let (status, details) = response_details(response, 160);
 
     TempoError::HttpStatus {
         status,
@@ -366,7 +298,7 @@ mod tests {
         mock.assert();
         let message = err.to_string();
         assert!(message.contains("401 Unauthorized"));
-        assert!(message.contains("TEMPO_BASE_URL"));
+        assert!(message.contains("Connection Setup"));
         assert!(message.contains("Unauthorized"));
     }
 

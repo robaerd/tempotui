@@ -1,17 +1,23 @@
 [package]
-name = "tempo-log"
+name = "tempotui"
 version = "0.1.0"
 edition = "2024"
+description = "Terminal UI for reviewing Tempo monthly worklogs and adjusting daily start times."
+readme = "README.md"
+keywords = ["tempo", "jira", "tui"]
+categories = ["command-line-utilities"]
 
 [dependencies]
-chrono = { version = "0.4", features = ["serde"] }
-clap = { version = "4.5", features = ["derive"] }
-comfy-table = "7.1"
-dotenvy = "0.15"
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
-serde = { version = "1", features = ["derive"] }
-thiserror = "2"
+chrono = { version = "0.4.44", features = ["serde"] }
+chrono-tz = "0.10.4"
+clap = { version = "4.6.0", features = ["derive"] }
+comfy-table = "7.2.2"
+crossterm = "0.29.0"
+ratatui = "0.30.0"
+reqwest = { version = "0.13.2", default-features = false, features = ["blocking", "json", "rustls"] }
+serde = { version = "1.0.228", features = ["derive"] }
+thiserror = "2.0.18"
+toml = "1.1.0"
 
 [dev-dependencies]
-mockito = "1.7"
-
+mockito = "1.7.2"
