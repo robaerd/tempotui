@@ -1,4 +1,8 @@
-use std::{thread, time::Duration};
+use std::{
+    sync::OnceLock,
+    thread,
+    time::Duration,
+};
 
 use reqwest::{
     StatusCode, Url,
@@ -11,8 +15,10 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_REQUEST_ATTEMPTS: usize = 3;
 const BASE_RETRY_DELAY: Duration = Duration::from_millis(250);
 const MAX_RETRY_DELAY: Duration = Duration::from_secs(5);
+static RUSTLS_PROVIDER: OnceLock<()> = OnceLock::new();
 
 pub(crate) fn build_blocking_client(user_agent: &str) -> Result<Client, reqwest::Error> {
+    ensure_rustls_provider();
     Client::builder()
         .connect_timeout(CONNECT_TIMEOUT)
         .timeout(REQUEST_TIMEOUT)
@@ -101,4 +107,12 @@ fn exponential_backoff(attempt: usize) -> Duration {
         .checked_mul(multiplier)
         .unwrap_or(MAX_RETRY_DELAY)
         .min(MAX_RETRY_DELAY)
+}
+
+fn ensure_rustls_provider() {
+    RUSTLS_PROVIDER.get_or_init(|| {
+        if rustls::crypto::CryptoProvider::get_default().is_none() {
+            let _ = rustls::crypto::ring::default_provider().install_default();
+        }
+    });
 }
