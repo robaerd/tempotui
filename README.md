@@ -24,7 +24,7 @@ brew install --cask tempotui
 
 ### Binary download
 
-Download the macOS or Linux archive for your CPU from [GitHub Releases](https://github.com/robaerd/tempotui/releases).
+Download the macOS or Linux archive from [GitHub Releases](https://github.com/robaerd/tempotui/releases).
 
 ### From source
 
