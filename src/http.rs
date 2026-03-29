@@ -1,8 +1,4 @@
-use std::{
-    sync::OnceLock,
-    thread,
-    time::Duration,
-};
+use std::{sync::OnceLock, thread, time::Duration};
 
 use reqwest::{
     StatusCode, Url,
