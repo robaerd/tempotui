@@ -23,14 +23,6 @@ jobs:
       - name: Cache cargo artifacts
         uses: Swatinem/rust-cache@v2
 
-      - name: Install Zig
-        uses: mlugg/setup-zig@v2
-        with:
-          version: 0.15.2
-
-      - name: Install cargo-zigbuild
-        run: cargo install --locked cargo-zigbuild --version 0.22.1
-
       - name: Validate GoReleaser config
         uses: goreleaser/goreleaser-action@v7
         with:
