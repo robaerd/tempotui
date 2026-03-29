@@ -30,7 +30,7 @@ impl EmptyDayTimeDisplay {
     pub fn label(self) -> &'static str {
         match self {
             Self::Blank => "Blank",
-            Self::DefaultStart => "Default Start",
+            Self::DefaultStart => "Show default times",
         }
     }
 
@@ -133,37 +133,37 @@ pub struct AppStateStore {
 
 #[derive(Debug, Error)]
 pub enum StorageError {
-    #[error("Could not determine a config directory for TempoTUI.")]
+    #[error("Couldn't find a config directory for tempotui.")]
     ConfigDirUnavailable,
-    #[error("Failed to read state from `{path}`: {source}")]
+    #[error("Couldn't read settings from `{path}`: {source}")]
     Read {
         path: PathBuf,
         #[source]
         source: std::io::Error,
     },
-    #[error("Failed to write state to `{path}`: {source}")]
+    #[error("Couldn't save settings to `{path}`: {source}")]
     Write {
         path: PathBuf,
         #[source]
         source: std::io::Error,
     },
-    #[error("Failed to parse TOML state file `{path}`: {source}")]
+    #[error("Couldn't parse the settings file `{path}`: {source}")]
     Parse {
         path: PathBuf,
         #[source]
         source: toml::de::Error,
     },
-    #[error("Failed to encode TOML state file `{path}`: {source}")]
+    #[error("Couldn't encode settings for `{path}`: {source}")]
     Encode {
         path: PathBuf,
         #[source]
         source: toml::ser::Error,
     },
-    #[error("Invalid saved default start time `{value}` in `{path}`.")]
+    #[error("Saved default start time `{value}` in `{path}` is invalid.")]
     InvalidDefaultStartTime { path: PathBuf, value: String },
-    #[error("Invalid saved override date `{value}` in `{path}`.")]
+    #[error("Saved override date `{value}` in `{path}` is invalid.")]
     InvalidOverrideDate { path: PathBuf, value: String },
-    #[error("Invalid saved override time `{value}` in `{path}`.")]
+    #[error("Saved override time `{value}` in `{path}` is invalid.")]
     InvalidOverrideTime { path: PathBuf, value: String },
 }
 

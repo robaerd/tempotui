@@ -53,7 +53,7 @@ fn draw_setup(frame: &mut Frame, state: &AppState, store_path: &Path) {
         state,
         store_path,
         "Connection Setup",
-        "Save Tempo and Jira credentials in config.toml and discover your Jira account automatically.",
+        "Save your Tempo and Jira settings and look up your Jira account ID automatically.",
     );
 }
 
@@ -163,7 +163,7 @@ fn render_summary_cards(frame: &mut Frame, state: &AppState, area: Rect, narrow:
             summary_card(
                 "Worked",
                 &format_duration(report.totals.worked_seconds),
-                "Tempo only",
+                "From Tempo",
             ),
             summary[0],
         );
@@ -172,7 +172,7 @@ fn render_summary_cards(frame: &mut Frame, state: &AppState, area: Rect, narrow:
                 "Breaks",
                 &format_duration(report.totals.break_seconds),
                 &format!(
-                    "{} rule when worked > 6:00",
+                    "{} added after 6:00",
                     format_duration(crate::report::BREAK_DURATION_SECONDS)
                 ),
             ),
@@ -180,9 +180,9 @@ fn render_summary_cards(frame: &mut Frame, state: &AppState, area: Rect, narrow:
         );
         frame.render_widget(
             summary_card(
-                "Tracked",
+                "Total",
                 &format_duration(report.totals.tracked_seconds),
-                "Manual tool span",
+                "Worked + break",
             ),
             summary[2],
         );
@@ -195,13 +195,10 @@ fn render_summary_cards(frame: &mut Frame, state: &AppState, area: Rect, narrow:
             summary[3],
         );
     } else {
-        frame.render_widget(summary_card("Worked", "--", "Waiting for data"), summary[0]);
-        frame.render_widget(summary_card("Breaks", "--", "Waiting for data"), summary[1]);
-        frame.render_widget(
-            summary_card("Tracked", "--", "Waiting for data"),
-            summary[2],
-        );
-        frame.render_widget(summary_card("Days", "--", "Waiting for data"), summary[3]);
+        frame.render_widget(summary_card("Worked", "--", "Loading..."), summary[0]);
+        frame.render_widget(summary_card("Breaks", "--", "Loading..."), summary[1]);
+        frame.render_widget(summary_card("Total", "--", "Loading..."), summary[2]);
+        frame.render_widget(summary_card("Days", "--", "Loading..."), summary[3]);
     }
 }
 
@@ -339,7 +336,7 @@ fn render_selected_day(frame: &mut Frame, state: &AppState, area: Rect) {
             .as_ref()
             .map(|banner| banner.text.clone())
             .unwrap_or_else(|| {
-                "Load a month, refresh, or reopen Connection from settings when the saved token changes."
+                "Load a month, refresh it, or reopen Connection from Settings if your token changed."
                     .to_string()
             });
         frame.render_widget(
@@ -361,7 +358,7 @@ fn render_panel(frame: &mut Frame, state: &AppState, area: Rect, store_path: &Pa
             state,
             store_path,
             "Connection Settings",
-            "Update Tempo and Jira credentials, then verify and save them.",
+            "Update your Tempo and Jira settings, then check and save them.",
         ),
         Panel::EditDayInspector => draw_edit_day_drawer(frame, state, area),
         Panel::None => {}
@@ -428,7 +425,7 @@ fn draw_connection_form(
         ],
     )
     .header(
-        Row::new(vec!["Field", "Value", "Status"])
+        Row::new(vec!["Field", "Value", "Note"])
             .style(
                 Style::default()
                     .fg(PANEL_TITLE)
@@ -467,7 +464,7 @@ fn draw_connection_form(
             ),
         ]),
         Line::from(vec![
-            Span::styled("Resolved ID:", label_style()),
+            Span::styled("Account ID:", label_style()),
             Span::styled(
                 format!(
                     " {}",
@@ -477,7 +474,7 @@ fn draw_connection_form(
             ),
         ]),
         Line::from(vec![
-            Span::styled("Tempo URL:", label_style()),
+            Span::styled("Tempo API:", label_style()),
             Span::styled(
                 format!(
                     " {}",
@@ -487,7 +484,7 @@ fn draw_connection_form(
             ),
         ]),
         Line::from(vec![
-            Span::styled("Jira Site:", label_style()),
+            Span::styled("Jira site:", label_style()),
             Span::styled(
                 format!(
                     " {}",
@@ -500,7 +497,7 @@ fn draw_connection_form(
         Line::from(Span::styled(status_text, status_style)),
         Line::from(""),
         Line::from(Span::styled(
-            "Jira is used only to resolve your Atlassian account ID. Tokens are saved in config.toml with restricted file permissions.",
+            "Jira is only used to look up your Atlassian account ID. Tokens are saved in config.toml with limited file permissions.",
             Style::default().fg(MUTED_TEXT),
         )),
     ])
@@ -511,24 +508,24 @@ fn draw_connection_form(
     let help_lines = if state.connection_form.editing {
         vec![
             Line::from("Move Left/Right/Home/End   Delete Backspace/Delete"),
-            Line::from("Done Enter or Tab   Revert Esc"),
+            Line::from("Save Enter or Tab   Cancel Esc"),
         ]
     } else if matches!(
         state.connection,
         super::state::ConnectionState::Connecting { .. }
     ) {
         vec![
-            Line::from("Busy Discovering and verifying   Stop wait Esc"),
+            Line::from("Busy Checking connection   Stop Esc"),
             Line::from("Quit q / Ctrl+C"),
         ]
     } else if state.connection_form.can_cancel {
         vec![
-            Line::from("Navigate Up/Down or Tab   Edit/Run Enter"),
-            Line::from("Cancel Esc   Quit q / Ctrl+C"),
+            Line::from("Move Up/Down or Tab   Edit/Run Enter"),
+            Line::from("Back Esc   Quit q / Ctrl+C"),
         ]
     } else {
         vec![
-            Line::from("Navigate Up/Down or Tab   Edit/Run Enter"),
+            Line::from("Move Up/Down or Tab   Edit/Run Enter"),
             Line::from("Quit q / Ctrl+C"),
         ]
     };
@@ -561,12 +558,12 @@ fn draw_settings_drawer(
             ),
             Span::raw("  "),
             Span::styled(
-                "Preferences apply immediately",
+                "Changes are saved right away",
                 Style::default().fg(MUTED_TEXT),
             ),
         ]),
         Line::from(Span::styled(
-            "Use Left/Right to change values. Enter on Connection opens credentials.",
+            "Use Left/Right to change values. Press Enter on Connection to edit credentials.",
             Style::default().fg(MUTED_TEXT),
         )),
     ])
@@ -580,9 +577,9 @@ fn draw_settings_drawer(
             SettingsField::DefaultStartTime.label(),
             state.active_default_start_label(),
             if state.session_default_start_time.is_some() {
-                "Saved value updates later"
+                "Saved value applies next time"
             } else {
-                "Baseline for each tracked day"
+                "Starting point for each day"
             },
         ),
         config_row(
@@ -593,7 +590,7 @@ fn draw_settings_drawer(
             } else {
                 "No".to_string()
             },
-            "Include weekdays without worklogs",
+            "Show weekdays with no worklogs",
         ),
         config_row(
             state.settings.selected_field == 2,
@@ -604,13 +601,13 @@ fn draw_settings_drawer(
                 .empty_day_time_display
                 .label()
                 .to_string(),
-            "Blank or show default clocks",
+            "Keep blank or show default times",
         ),
         config_row(
             state.settings.selected_field == 3,
             SettingsField::Connection.label(),
             connection.text.clone(),
-            "Open Tempo and Jira credentials",
+            "Edit Tempo and Jira settings",
         ),
     ];
     frame.render_widget(
@@ -648,7 +645,7 @@ fn draw_settings_drawer(
                     .format("%H:%M")
             )),
             Line::from(format!(
-                "Active start: {}",
+                "Current start: {}",
                 state.active_default_start_label()
             )),
             Line::from(format!("Connection: {}", connection_status(state).text)),
@@ -663,12 +660,12 @@ fn draw_settings_drawer(
 fn draw_help_drawer(frame: &mut Frame, area: Rect) {
     frame.render_widget(
         Paragraph::new(vec![
-            Line::from("Month view  Left/Right switch month, Up/Down move rows, Home jumps to current month."),
-            Line::from("Editing  Enter opens the selected day editor. Type HH:MM directly, use Left/Right for +/-15m, 0 to reset."),
-            Line::from("Settings  s opens preferences. Enter on Connection edits Tempo/Jira credentials."),
-            Line::from("Refresh  r reloads the visible month from Tempo."),
-            Line::from("Dismiss  Esc closes drawers. Esc never quits from the main view."),
-            Line::from("Quit  q and Ctrl+C quit the app."),
+            Line::from("Month  Left/Right changes month, Up/Down moves through days, Home jumps to the current month."),
+            Line::from("Edit  Enter opens the selected day. Type HH:MM, use Left/Right for +/-15m, or 0 to reset."),
+            Line::from("Settings  s opens preferences. Press Enter on Connection to edit Tempo and Jira settings."),
+            Line::from("Refresh  r reloads the current month from Tempo."),
+            Line::from("Close  Esc closes drawers. It never quits the main view."),
+            Line::from("Quit  q or Ctrl+C quits the app."),
         ])
         .block(panel_block("Help"))
         .wrap(Wrap { trim: false }),

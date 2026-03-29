@@ -5,7 +5,7 @@ use thiserror::Error;
 #[derive(Debug, Parser)]
 #[command(
     name = "tempotui",
-    about = "Open the TempoTUI app for monthly worklog review and adjustment."
+    about = "Review and adjust your monthly Tempo worklog from the terminal."
 )]
 pub struct Cli {
     #[arg(long, value_name = "YYYY-MM")]
@@ -31,9 +31,9 @@ pub struct AppConfig {
 
 #[derive(Debug, Error)]
 pub enum ConfigError {
-    #[error("Invalid month `{value}`. Expected the format `YYYY-MM`.")]
+    #[error("Couldn't read month `{value}`. Use YYYY-MM.")]
     InvalidMonth { value: String },
-    #[error("Invalid start time `{value}`. Expected the format `HH:MM`.")]
+    #[error("Couldn't read start time `{value}`. Use HH:MM.")]
     InvalidStartTime { value: String },
 }
 
@@ -185,7 +185,7 @@ mod tests {
     fn rejects_invalid_month_values() {
         let err = MonthWindow::from_label("2025-13").unwrap_err();
 
-        assert!(err.to_string().contains("Expected the format `YYYY-MM`"));
+        assert!(err.to_string().contains("Use YYYY-MM"));
     }
 
     #[test]
@@ -197,6 +197,6 @@ mod tests {
     #[test]
     fn rejects_invalid_start_time() {
         let err = parse_start_time("9:15").unwrap_err();
-        assert!(err.to_string().contains("HH:MM"));
+        assert!(err.to_string().contains("Use HH:MM"));
     }
 }

@@ -141,7 +141,7 @@ pub fn statutory_break_seconds(worked_seconds: i64) -> i64 {
 pub fn render_report(report: &MonthlyReport) -> String {
     let mut output = String::new();
     output.push_str(&format!(
-        "Tempo monthly span report for {}\nRange: {} to {}\nDefault start time: {}\nBreak rule: add {} when worked > {}\n\n",
+        "Tempo report for {}\nRange: {} to {}\nDefault start: {}\nBreak rule: add {} after {}\n\n",
         report.month_label,
         report.range_start,
         report.range_end,
@@ -151,7 +151,7 @@ pub fn render_report(report: &MonthlyReport) -> String {
     ));
 
     if report.rows.is_empty() {
-        output.push_str("No rows available for this period.\n");
+        output.push_str("No worklogs found for this period.\n");
         return output;
     }
 
@@ -163,10 +163,10 @@ pub fn render_report(report: &MonthlyReport) -> String {
         header("Day"),
         header("Worked"),
         header("Break"),
-        header("Tracked"),
+        header("Total"),
         header("Start"),
         header("End"),
-        header("Ov"),
+        header("Adj"),
     ]);
 
     for row in &report.rows {
@@ -359,7 +359,7 @@ mod tests {
 
         let rendered = render_report(&report);
 
-        assert!(rendered.contains("Tempo monthly span report for 2026-03"));
+        assert!(rendered.contains("Tempo report for 2026-03"));
         assert!(rendered.contains("Worked"));
         assert!(rendered.contains("17:30"));
         assert!(rendered.contains("TOTAL"));

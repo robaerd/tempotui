@@ -320,7 +320,7 @@ fn saving_connection_settings_requires_token() {
     assert!(matches!(app.state.route, Route::Setup));
     assert_eq!(
         app.state.connection_form.message.as_deref(),
-        Some("Tempo API Token is required.")
+        Some("Enter a Tempo API token.")
     );
 }
 
@@ -431,7 +431,7 @@ fn startup_verification_can_be_skipped_into_connection_setup() {
     ));
     assert_eq!(
         app.state.connection_form.message.as_deref(),
-        Some("Saved connection verification skipped. Update the settings to continue.")
+        Some("Skipped checking your saved connection. Update the settings to continue.")
     );
 }
 
@@ -642,7 +642,7 @@ fn edit_day_requires_valid_hhmm_input() {
             .unwrap()
             .validation_error
             .as_deref(),
-        Some("Enter the start time as HH:MM.")
+        Some("Enter a start time as HH:MM.")
     );
 }
 
@@ -650,8 +650,8 @@ fn edit_day_requires_valid_hhmm_input() {
 fn startup_verification_and_narrow_month_view_render_expected_copy() {
     let mut startup = test_app(configured_state());
     let startup_render = render_app(&mut startup, 80, 24);
-    assert!(startup_render.contains("Verifying"));
-    assert!(startup_render.contains("saved Tempo and Jira settings"));
+    assert!(startup_render.contains("Checking"));
+    assert!(startup_render.contains("saved Tempo and Jira"));
 
     flush_connection_work(&mut startup);
     let month = startup.state.month.month.clone();
@@ -698,6 +698,6 @@ fn edit_mode_renders_in_the_selected_day_panel() {
 
     let render = render_app(&mut app, 120, 30);
     assert!(render.contains("Edit Day"));
-    assert!(render.contains("Start input"));
-    assert!(render.contains("Preview end"));
+    assert!(render.contains("Start time"));
+    assert!(render.contains("Ends at"));
 }

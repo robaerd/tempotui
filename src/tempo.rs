@@ -25,14 +25,14 @@ pub struct TempoClient {
 
 #[derive(Debug, Error)]
 pub enum TempoError {
-    #[error("Invalid Tempo base URL `{value}`.")]
+    #[error("Tempo base URL `{value}` isn't a valid URL.")]
     InvalidBaseUrl { value: String },
-    #[error("Failed to build Tempo client: {0}")]
+    #[error("Couldn't create the Tempo client: {0}")]
     ClientBuild(#[source] reqwest::Error),
-    #[error("Failed to construct Tempo request URL.")]
+    #[error("Couldn't build the Tempo request URL.")]
     UrlBuild,
     #[error(
-        "Tempo pagination returned a cross-origin next URL `{url}`. Expected origin `{expected_origin}` but received `{received_origin}`."
+        "Tempo pagination returned a next URL from a different origin: `{url}`. Expected `{expected_origin}` but got `{received_origin}`."
     )]
     PaginationOriginMismatch {
         expected_origin: String,
@@ -46,14 +46,14 @@ pub enum TempoError {
         source: reqwest::Error,
     },
     #[error(
-        "Tempo returned {status} for `{url}`. Check the saved Tempo API token, account ID, and base URL in Connection Setup. Tempo commonly returns 401 when the token is valid for a different region.{details}"
+        "Tempo returned {status} for `{url}`. Check your saved Tempo API token, account ID, and base URL in Connection Setup. A 401 often means the token belongs to a different Tempo region.{details}"
     )]
     HttpStatus {
         status: StatusCode,
         url: String,
         details: String,
     },
-    #[error("Failed to decode Tempo response from `{url}`: {source}")]
+    #[error("Couldn't read the Tempo response from `{url}`: {source}")]
     Decode {
         url: String,
         #[source]
@@ -342,7 +342,7 @@ mod tests {
 
         first.assert();
         let message = err.to_string();
-        assert!(message.contains("cross-origin next URL"));
+        assert!(message.contains("different origin"));
         assert!(message.contains("example.com"));
     }
 

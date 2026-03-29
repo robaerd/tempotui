@@ -20,17 +20,17 @@ pub struct JiraClient {
 
 #[derive(Debug, Error)]
 pub enum JiraError {
-    #[error("Invalid Jira site URL `{value}`.")]
+    #[error("Jira site URL `{value}` isn't a valid URL.")]
     InvalidSiteUrl { value: String },
     #[error("Jira site URL `{value}` must use HTTPS.")]
     InsecureSiteUrl { value: String },
-    #[error("Jira email must not be empty.")]
+    #[error("Enter a Jira email address.")]
     MissingEmail,
-    #[error("Jira API token must not be empty.")]
+    #[error("Enter a Jira API token.")]
     MissingApiToken,
-    #[error("Failed to build Jira client: {0}")]
+    #[error("Couldn't create the Jira client: {0}")]
     ClientBuild(#[source] reqwest::Error),
-    #[error("Failed to construct Jira request URL.")]
+    #[error("Couldn't build the Jira request URL.")]
     UrlBuild,
     #[error("Jira request to `{url}` failed: {source}")]
     Request {
@@ -39,20 +39,20 @@ pub enum JiraError {
         source: reqwest::Error,
     },
     #[error(
-        "Jira returned {status} for `{url}`. Check the saved Jira site URL, email, and API token in Connection Setup.{details}"
+        "Jira returned {status} for `{url}`. Check your saved Jira site URL, email, and API token in Connection Setup.{details}"
     )]
     HttpStatus {
         status: StatusCode,
         url: String,
         details: String,
     },
-    #[error("Failed to decode Jira response from `{url}`: {source}")]
+    #[error("Couldn't read the Jira response from `{url}`: {source}")]
     Decode {
         url: String,
         #[source]
         source: reqwest::Error,
     },
-    #[error("Jira response from `{url}` did not contain an `accountId`.")]
+    #[error("Jira response from `{url}` didn't include an `accountId`.")]
     MissingAccountId { url: String },
 }
 

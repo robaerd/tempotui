@@ -37,14 +37,14 @@ pub struct ConnectionFieldView {
 pub fn current_month_status(state: &AppState) -> StatusView {
     if matches!(state.connection, ConnectionState::VerifyingSaved { .. }) {
         return StatusView {
-            text: "Verifying".to_string(),
+            text: "Checking".to_string(),
             tone: StatusTone::Warning,
         };
     }
 
     if !state.loader_available {
         return StatusView {
-            text: "Setup needed".to_string(),
+            text: "Needs setup".to_string(),
             tone: StatusTone::Danger,
         };
     }
@@ -65,7 +65,7 @@ pub fn current_month_status(state: &AppState) -> StatusView {
                 tone: StatusTone::Warning,
             },
             MonthLoadState::Failed { stale: false, .. } => StatusView {
-                text: "Load failed".to_string(),
+                text: "Couldn't load".to_string(),
                 tone: StatusTone::Danger,
             },
             MonthLoadState::Ready => StatusView {
@@ -87,12 +87,12 @@ pub fn current_month_status(state: &AppState) -> StatusView {
 
 pub fn pending_or_error_message(state: &AppState) -> String {
     if matches!(state.connection, ConnectionState::VerifyingSaved { .. }) {
-        return "Verifying saved Tempo and Jira settings before loading this month.\n\nPress s to open Connection Setup or q to quit."
+        return "Checking your saved Tempo and Jira settings before loading this month.\n\nPress s to open Connection Setup or q to quit."
             .to_string();
     }
 
     if !state.loader_available {
-        return "Tempo or Jira connection is not configured.\n\nPress s to open Connection Setup."
+        return "Set up Tempo and Jira before loading a month.\n\nPress s to open Connection Setup."
             .to_string();
     }
 
@@ -104,7 +104,7 @@ pub fn pending_or_error_message(state: &AppState) -> String {
             }
             MonthLoadState::Failed { message, .. } => {
                 return format!(
-                    "Could not load {}:\n\n{}\n\nPress r to retry, s to update the connection, or Left/Right to switch months.",
+                    "Couldn't load {}.\n\n{}\n\nPress r to try again, s to update the connection, or Left/Right to switch months.",
                     cached.month.label, message
                 );
             }
@@ -112,26 +112,25 @@ pub fn pending_or_error_message(state: &AppState) -> String {
         }
     }
 
-    "Press Left or Right to pick a month, Home to jump to the current month, or r to reload."
-        .to_string()
+    "Use Left or Right to change months, Home to jump to this month, or r to reload.".to_string()
 }
 
 pub fn connection_status(state: &AppState) -> StatusView {
     match state.connection {
         ConnectionState::Connecting { .. } => StatusView {
-            text: "Connecting...".to_string(),
+            text: "Checking...".to_string(),
             tone: StatusTone::Warning,
         },
         ConnectionState::VerifyingSaved { .. } => StatusView {
-            text: "Verifying...".to_string(),
+            text: "Checking...".to_string(),
             tone: StatusTone::Warning,
         },
         ConnectionState::Verified => StatusView {
-            text: "Verified".to_string(),
+            text: "Ready".to_string(),
             tone: StatusTone::Success,
         },
         ConnectionState::SavedUnverified => StatusView {
-            text: "Saved, unverified".to_string(),
+            text: "Not checked".to_string(),
             tone: StatusTone::Warning,
         },
         ConnectionState::NeedsSetup => StatusView {
@@ -239,11 +238,9 @@ pub fn connection_field_value(state: &AppState, field: ConnectionField) -> Strin
         }
         ConnectionField::Connect => {
             if matches!(state.connection, ConnectionState::Connecting { .. }) {
-                "Connecting...".to_string()
-            } else if can_save_connection(state) {
-                "Discover and save".to_string()
+                "Checking...".to_string()
             } else {
-                "Fix required fields".to_string()
+                "Press Enter".to_string()
             }
         }
         ConnectionField::Cancel => "Press Enter".to_string(),
@@ -260,9 +257,9 @@ pub fn connection_field_note(state: &AppState, field: ConnectionField) -> String
                 .trim()
                 .is_empty()
             {
-                "Required".to_string()
+                "Missing".to_string()
             } else {
-                "Ready".to_string()
+                "Looks good".to_string()
             }
         }
         ConnectionField::TempoBaseUrl => {
@@ -277,7 +274,7 @@ pub fn connection_field_note(state: &AppState, field: ConnectionField) -> String
             )
             .is_ok()
             {
-                "Valid URL".to_string()
+                "Looks good".to_string()
             } else {
                 "Check URL".to_string()
             }
@@ -285,92 +282,83 @@ pub fn connection_field_note(state: &AppState, field: ConnectionField) -> String
         ConnectionField::JiraSiteUrl => {
             let value = state.connection_form.jira_site_url.value.trim();
             if value.is_empty() {
-                "Required".to_string()
+                "Missing".to_string()
             } else if value.starts_with("http://") {
                 "Use HTTPS".to_string()
             } else {
-                "Used for account lookup".to_string()
+                "Used to find account".to_string()
             }
         }
         ConnectionField::JiraEmail => {
             if state.connection_form.jira_email.value.trim().is_empty() {
-                "Required".to_string()
+                "Missing".to_string()
             } else {
-                "Ready".to_string()
+                "Looks good".to_string()
             }
         }
         ConnectionField::JiraApiToken => {
             if state.connection_form.jira_api_token.value.trim().is_empty() {
-                "Required".to_string()
+                "Missing".to_string()
             } else {
-                "Ready".to_string()
+                "Looks good".to_string()
             }
         }
         ConnectionField::Connect => {
             if matches!(state.connection, ConnectionState::Connecting { .. }) {
-                "Running".to_string()
+                "Checking".to_string()
             } else if can_save_connection(state) {
-                "Ready to verify".to_string()
+                "Ready".to_string()
             } else {
-                "Fix required fields".to_string()
+                "Missing fields".to_string()
             }
         }
-        ConnectionField::Cancel => "Return to month view".to_string(),
+        ConnectionField::Cancel => "Back to month view".to_string(),
     }
 }
 
 pub fn selected_connection_help(state: &AppState) -> String {
     let field = state.connection_form.selected_field();
     if matches!(state.connection, ConnectionState::Connecting { .. }) {
-        return "Discovering your Jira account and validating Tempo access. Press Esc to stop waiting and keep editing.".to_string();
+        return "Looking up your Jira account and checking Tempo access. Press Esc to stop waiting and keep editing.".to_string();
     }
 
     match field {
         ConnectionField::TempoApiToken => {
-            "Paste the Tempo bearer token for the correct region endpoint.".to_string()
+            "Paste a Tempo token for the same region as the API URL.".to_string()
         }
         ConnectionField::TempoBaseUrl => {
-            "Usually https://api.eu.tempo.io. Keep the region aligned with the token.".to_string()
+            "Usually https://api.eu.tempo.io. Match it to the token's region.".to_string()
         }
-        ConnectionField::JiraSiteUrl => {
-            "Atlassian site URL used to discover your account ID automatically.".to_string()
-        }
-        ConnectionField::JiraEmail => "Email is used only for Jira account discovery.".to_string(),
-        ConnectionField::JiraApiToken => {
-            "Atlassian API token used only for the account lookup request.".to_string()
-        }
+        ConnectionField::JiraSiteUrl => "Used to look up your Atlassian account ID.".to_string(),
+        ConnectionField::JiraEmail => "Used only for the Jira account lookup.".to_string(),
+        ConnectionField::JiraApiToken => "Used only for the Jira account lookup.".to_string(),
         ConnectionField::Connect => {
-            "Runs Jira discovery first, then verifies Tempo before saving both settings."
-                .to_string()
+            "Looks up your Jira account first, then checks Tempo before saving.".to_string()
         }
-        ConnectionField::Cancel => "Return without changing the saved credentials.".to_string(),
+        ConnectionField::Cancel => "Go back without changing the saved settings.".to_string(),
     }
 }
 
 pub fn settings_status_copy(state: &AppState) -> &'static str {
     match SettingsField::all()[state.settings.selected_field] {
         SettingsField::DefaultStartTime => state.default_start_status_message(),
-        SettingsField::ShowEmptyWeekdays => {
-            "Toggles whether weekdays without Tempo worklogs still appear in the month table."
-        }
+        SettingsField::ShowEmptyWeekdays => "Shows or hides weekdays with no Tempo worklogs.",
         SettingsField::EmptyDayTimeDisplay => {
-            "Chooses whether empty days show blank times or the default start/end clocks."
+            "Choose whether empty days stay blank or show default start and end times."
         }
-        SettingsField::Connection => {
-            "Opens the Tempo and Jira credential editor and reruns discovery/validation."
-        }
+        SettingsField::Connection => "Open your Tempo and Jira settings and run the checks again.",
     }
 }
 
 pub fn selected_row_panel_lines(state: &AppState, report: &MonthlyReport) -> Vec<Line<'static>> {
     let Some(row) = report.rows.get(state.month.selected_row) else {
-        return vec![Line::from("No rows available for this month.")];
+        return vec![Line::from("No days to show for this month.")];
     };
 
     let origin = if row.has_override {
         "Manual override"
     } else if state.session_default_start_time.is_some() {
-        "Session default"
+        "Session override"
     } else {
         "Saved default"
     };
@@ -398,9 +386,9 @@ pub fn edit_day_lines(state: &AppState) -> Vec<Line<'static>> {
         return vec![Line::from("No day selected.")];
     };
     let action_preview = match crate::config::parse_start_time(&edit_day.time_input.value) {
-        Ok(time) if time == edit_day.baseline_time => "Press Enter to clear the override.",
-        Ok(_) => "Press Enter to save a manual override.",
-        Err(_) => "Enter the start time as HH:MM before saving.",
+        Ok(time) if time == edit_day.baseline_time => "Press Enter to remove the override.",
+        Ok(_) => "Press Enter to save this override.",
+        Err(_) => "Enter a start time as HH:MM before saving.",
     };
     vec![
         Line::from(edit_day.date.format("%A, %d %B %Y").to_string()),
@@ -410,16 +398,13 @@ pub fn edit_day_lines(state: &AppState) -> Vec<Line<'static>> {
             format_duration(statutory_break_seconds(edit_day.worked_seconds))
         )),
         Line::from(format!(
-            "Default: {}   Current saved: {}",
+            "Default: {}   Saved: {}",
             edit_day.baseline_time.format("%H:%M"),
             edit_day.original_time.format("%H:%M")
         )),
+        Line::from(format!("Start time: {}", edit_day.time_input.with_cursor())),
         Line::from(format!(
-            "Start input: {}",
-            edit_day.time_input.with_cursor()
-        )),
-        Line::from(format!(
-            "Preview end: {}",
+            "Ends at: {}",
             edit_day_preview_end(edit_day).unwrap_or_else(|| "(invalid time)".to_string())
         )),
         Line::from(
@@ -482,7 +467,7 @@ pub fn blank_placeholder(value: &str) -> String {
 pub fn resolved_account_id_preview(value: &str) -> String {
     let trimmed = value.trim();
     if trimmed.is_empty() {
-        "(discovered on connect)".to_string()
+        "(found on save)".to_string()
     } else {
         trimmed.to_string()
     }

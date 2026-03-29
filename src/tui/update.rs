@@ -156,7 +156,9 @@ fn skip_saved_verification(state: &mut AppState) -> Vec<Effect> {
 
     transition_to_setup(
         state,
-        Some("Saved connection verification skipped. Update the settings to continue.".to_string()),
+        Some(
+            "Skipped checking your saved connection. Update the settings to continue.".to_string(),
+        ),
     );
     state.connection = ConnectionState::SavedUnverified;
     Vec::new()
@@ -230,10 +232,8 @@ fn reduce_connection(state: &mut AppState, action: ConnectionAction) -> Vec<Effe
     if matches!(state.connection, ConnectionState::Connecting { .. }) {
         if matches!(action, ConnectionAction::Cancel) {
             state.connection = ConnectionState::SavedUnverified;
-            state.connection_form.message = Some(
-                "Stopped waiting for verification. You can edit the fields and try again."
-                    .to_string(),
-            );
+            state.connection_form.message =
+                Some("Stopped checking. You can keep editing and try again.".to_string());
         }
         return Vec::new();
     }
@@ -386,8 +386,7 @@ fn mutate_selected_connection_text(
 
 fn submit_connection(state: &mut AppState) -> Vec<Effect> {
     if state.connection.request_id().is_some() {
-        state.connection_form.message =
-            Some("Connection verification is already in progress.".to_string());
+        state.connection_form.message = Some("A connection check is already running.".to_string());
         return Vec::new();
     }
 
@@ -405,24 +404,24 @@ fn submit_connection(state: &mut AppState) -> Vec<Effect> {
     let tempo_base_url = state.connection_form.tempo_base_url.value.clone();
 
     if tempo_api_token.is_empty() {
-        state.connection_form.message = Some("Tempo API Token is required.".to_string());
+        state.connection_form.message = Some("Enter a Tempo API token.".to_string());
         return Vec::new();
     }
     if jira.site_url.is_empty() {
-        state.connection_form.message = Some("Jira Site URL is required.".to_string());
+        state.connection_form.message = Some("Enter a Jira site URL.".to_string());
         return Vec::new();
     }
     if jira.email.is_empty() {
-        state.connection_form.message = Some("Jira Email is required.".to_string());
+        state.connection_form.message = Some("Enter a Jira email address.".to_string());
         return Vec::new();
     }
     if jira.api_token.is_empty() {
-        state.connection_form.message = Some("Jira API Token is required.".to_string());
+        state.connection_form.message = Some("Enter a Jira API token.".to_string());
         return Vec::new();
     }
     if !can_save_connection(state) {
         state.connection_form.message =
-            Some("Connection settings are incomplete or invalid.".to_string());
+            Some("Some connection fields are missing or invalid.".to_string());
         return Vec::new();
     }
 
@@ -465,19 +464,19 @@ fn adjust_setting(state: &mut AppState, delta: i32) -> Vec<Effect> {
                 adjust_time(state.persisted.preferences.default_start_time, delta);
             vec![Effect::SavePersisted {
                 success_message: if state.session_default_start_time.is_some() {
-                    "Saved default start time for future sessions.".to_string()
+                    "Saved your default start for future sessions.".to_string()
                 } else {
-                    "Saved default start time.".to_string()
+                    "Saved your default start time.".to_string()
                 },
-                failure_prefix: "Using in-memory settings only; save failed",
+                failure_prefix: "Saved in memory only; couldn't write config",
             }]
         }
         SettingsField::ShowEmptyWeekdays => {
             state.persisted.preferences.show_empty_weekdays =
                 !state.persisted.preferences.show_empty_weekdays;
             vec![Effect::SavePersisted {
-                success_message: "Saved weekday visibility preference.".to_string(),
-                failure_prefix: "Using in-memory settings only; save failed",
+                success_message: "Saved your weekday visibility setting.".to_string(),
+                failure_prefix: "Saved in memory only; couldn't write config",
             }]
         }
         SettingsField::EmptyDayTimeDisplay => {
@@ -491,8 +490,8 @@ fn adjust_setting(state: &mut AppState, delta: i32) -> Vec<Effect> {
                     .previous()
             };
             vec![Effect::SavePersisted {
-                success_message: "Saved empty-day display preference.".to_string(),
-                failure_prefix: "Using in-memory settings only; save failed",
+                success_message: "Saved your empty-day display setting.".to_string(),
+                failure_prefix: "Saved in memory only; couldn't write config",
             }]
         }
         SettingsField::Connection => Vec::new(),
@@ -552,7 +551,7 @@ fn apply_edit_day(state: &mut AppState) -> Vec<Effect> {
         return Vec::new();
     };
     let Ok(current_time) = parse_edit_time(&edit_day.time_input.value) else {
-        edit_day.validation_error = Some("Enter the start time as HH:MM.".to_string());
+        edit_day.validation_error = Some("Enter a start time as HH:MM.".to_string());
         return Vec::new();
     };
     let edit_day = state
@@ -572,18 +571,18 @@ fn apply_edit_day(state: &mut AppState) -> Vec<Effect> {
     vec![Effect::SavePersisted {
         success_message: if current_time == edit_day.baseline_time {
             format!(
-                "Cleared the saved override for {}. Session default start remains {}.",
+                "Removed the saved override for {}. This session still starts at {}.",
                 edit_day.date,
                 state.effective_default_start_time().format("%H:%M")
             )
         } else {
             format!(
-                "Saved override for {} to {}.",
+                "Saved an override for {}: {}.",
                 edit_day.date,
                 current_time.format("%H:%M")
             )
         },
-        failure_prefix: "Override updated in memory only; save failed",
+        failure_prefix: "Saved in memory only; couldn't write config",
     }]
 }
 
@@ -601,7 +600,7 @@ fn saved_connection_verified(state: &mut AppState) -> Vec<Effect> {
 fn saved_connection_rejected(state: &mut AppState, message: String) -> Vec<Effect> {
     let had_loaded_month = state.any_loaded_month();
     let message = format!(
-        "Saved connection settings could not be verified: {}. Press s to update them.",
+        "Couldn't verify your saved connection: {}. Press s to update it.",
         compact_error_message(&message, 120)
     );
     state.connection = ConnectionState::Invalid {
@@ -648,10 +647,10 @@ fn connection_established(
     vec![
         Effect::SavePersisted {
             success_message: format!(
-                "Saved and verified connection settings. Resolved Jira account ID {}.",
+                "Saved your connection settings and found Jira account ID {}.",
                 state.persisted.tempo.account_id
             ),
-            failure_prefix: "Using in-memory connection only; save failed",
+            failure_prefix: "Saved in memory only; couldn't write config",
         },
         month_effect(request_id, month),
     ]
@@ -711,8 +710,7 @@ fn loader_disconnected(state: &mut AppState, loader_available: bool) {
             let stale = entry.load_state.has_loaded();
             entry.load_state = MonthLoadState::Failed {
                 stale,
-                message: "Tempo background loader stopped unexpectedly. Press r to retry."
-                    .to_string(),
+                message: "The Tempo background loader stopped. Press r to try again.".to_string(),
             };
         }
     }
@@ -720,7 +718,7 @@ fn loader_disconnected(state: &mut AppState, loader_available: bool) {
     state.loader_available = loader_available;
     state.banner = Some(BannerState {
         tone: BannerTone::Warning,
-        text: "Tempo background loader stopped unexpectedly. Press r to retry.".to_string(),
+        text: "The Tempo background loader stopped. Press r to try again.".to_string(),
     });
     if !loader_available {
         state.connection = ConnectionState::SavedUnverified;
@@ -731,14 +729,14 @@ fn connection_runtime_disconnected(state: &mut AppState) {
     match state.connection {
         ConnectionState::Connecting { .. } => {
             state.connection = ConnectionState::Invalid {
-                message: "Connection setup stopped unexpectedly. Try again.".to_string(),
+                message: "The connection check stopped unexpectedly. Try again.".to_string(),
             };
             state.connection_form.message =
-                Some("Connection setup stopped unexpectedly. Try again.".to_string());
+                Some("The connection check stopped unexpectedly. Try again.".to_string());
         }
         ConnectionState::VerifyingSaved { .. } => {
             let message =
-                "Saved connection verification stopped unexpectedly. Press s to re-enter the settings."
+                "The saved connection check stopped unexpectedly. Press s to reopen settings."
                     .to_string();
             state.loader_available = false;
             state.connection = ConnectionState::Invalid {
@@ -761,8 +759,7 @@ fn request_month_load(state: &mut AppState, force_refresh: bool) -> Vec<Effect> 
     if matches!(state.connection, ConnectionState::VerifyingSaved { .. }) {
         state.banner = Some(BannerState {
             tone: BannerTone::Warning,
-            text: "Waiting for saved connection verification before loading Tempo data."
-                .to_string(),
+            text: "Still checking your saved connection before loading Tempo data.".to_string(),
         });
         return Vec::new();
     }
@@ -770,8 +767,7 @@ fn request_month_load(state: &mut AppState, force_refresh: bool) -> Vec<Effect> 
     if !state.loader_available {
         state.banner = Some(BannerState {
             tone: BannerTone::Warning,
-            text: "Tempo or Jira connection is not configured. Press s to open Connection Setup."
-                .to_string(),
+            text: "Set up Tempo and Jira first. Press s to open Connection Setup.".to_string(),
         });
         return Vec::new();
     }

@@ -68,7 +68,7 @@ pub(crate) fn response_details(response: Response, max_chars: usize) -> (StatusC
         String::new()
     } else {
         format!(
-            " Response excerpt: {}",
+            " Response: {}",
             excerpt.chars().take(max_chars).collect::<String>()
         )
     };

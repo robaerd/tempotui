@@ -67,7 +67,7 @@ impl SettingsField {
         match self {
             Self::DefaultStartTime => "Default Start",
             Self::ShowEmptyWeekdays => "Show Empty Weekdays",
-            Self::EmptyDayTimeDisplay => "Empty-Day Display",
+            Self::EmptyDayTimeDisplay => "Empty Days",
             Self::Connection => "Connection",
         }
     }
@@ -96,11 +96,11 @@ impl ConnectionField {
     pub(super) fn label(self) -> &'static str {
         match self {
             Self::TempoApiToken => "Tempo Token",
-            Self::TempoBaseUrl => "Tempo Base URL",
-            Self::JiraSiteUrl => "Jira Site URL",
+            Self::TempoBaseUrl => "Tempo API URL",
+            Self::JiraSiteUrl => "Jira Site",
             Self::JiraEmail => "Jira Email",
-            Self::JiraApiToken => "Jira Token",
-            Self::Connect => "Connect",
+            Self::JiraApiToken => "Jira API Token",
+            Self::Connect => "Verify & Save",
             Self::Cancel => "Cancel",
         }
     }
@@ -339,11 +339,11 @@ impl AppState {
                 Route::Setup,
                 ConnectionState::Invalid {
                     message:
-                        "Saved Tempo or Jira settings are incomplete or invalid. Update them to continue."
+                        "Your saved Tempo or Jira settings are missing or invalid. Update them to continue."
                             .to_string(),
                 },
                 Some(
-                    "Saved Tempo or Jira settings are incomplete or invalid. Update them to continue."
+                    "Your saved Tempo or Jira settings are missing or invalid. Update them to continue."
                         .to_string(),
                 ),
             ),
@@ -351,7 +351,7 @@ impl AppState {
                 Route::Setup,
                 ConnectionState::NeedsSetup,
                 Some(
-                    "Enter your Tempo and Jira settings. Jira is used to discover your Atlassian account automatically."
+                    "Enter your Tempo and Jira settings. We'll look up your Atlassian account ID automatically."
                         .to_string(),
                 ),
             ),
@@ -403,7 +403,7 @@ impl AppState {
             .format("%H:%M")
             .to_string();
         if self.session_default_start_time.is_some() {
-            format!("{active} session override")
+            format!("{active} this session")
         } else {
             active
         }
@@ -411,9 +411,9 @@ impl AppState {
 
     pub(super) fn default_start_status_message(&self) -> &'static str {
         if self.session_default_start_time.is_some() {
-            "This session uses --start. Saved default start changes apply on the next launch."
+            "This session is using --start. Saved changes apply the next time you open the app."
         } else {
-            "Controls the baseline start time for new days and empty-day rendering."
+            "Sets the starting point for new days and optional empty-day times."
         }
     }
 
@@ -475,7 +475,7 @@ pub(super) fn adjust_time(time: NaiveTime, delta_steps: i32) -> NaiveTime {
 }
 
 pub(super) fn parse_edit_time(value: &str) -> Result<NaiveTime, String> {
-    parse_start_time(value).map_err(|_| "Enter the start time as HH:MM.".to_string())
+    parse_start_time(value).map_err(|_| "Enter a start time as HH:MM.".to_string())
 }
 
 fn previous_char_boundary(value: &str, cursor: usize) -> usize {
