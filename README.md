@@ -18,13 +18,13 @@ It allows you to:
 ### Homebrew
 
 ```bash
-brew tap robaerd/tap
-brew install --cask tempotui
+brew tap robaerd/homebrew-tap
+brew install --cask robaerd/homebrew-tap/tempotui
 ```
 
 ### Binary download
 
-Download the macOS or Linux archive from [GitHub Releases](https://github.com/robaerd/tempotui/releases).
+Download the macOS archive from [GitHub Releases](https://github.com/robaerd/tempotui/releases).
 
 ### From source
 
