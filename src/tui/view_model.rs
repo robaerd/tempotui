@@ -1,10 +1,10 @@
 use ratatui::text::Line;
 
 use crate::{
-    jira::JiraClient,
+    jira::{JiraError, validate_site_url},
     report::{MonthlyReport, format_clock_time, format_duration, statutory_break_seconds},
     storage::EmptyDayTimeDisplay,
-    tempo::TempoClient,
+    tempo::{TempoError, validate_base_url},
 };
 
 use super::{
@@ -263,30 +263,27 @@ pub fn connection_field_note(state: &AppState, field: ConnectionField) -> String
             }
         }
         ConnectionField::TempoBaseUrl => {
-            if TempoClient::new(
-                state.connection_form.tempo_base_url.value.clone(),
-                state
-                    .connection_form
-                    .tempo_api_token
-                    .value
-                    .trim()
-                    .to_string(),
-            )
-            .is_ok()
-            {
-                "Looks good".to_string()
+            let value = state.connection_form.tempo_base_url.value.trim();
+            if value.is_empty() {
+                "Uses default".to_string()
             } else {
-                "Check URL".to_string()
+                match validate_base_url(value) {
+                    Ok(()) => "Looks good".to_string(),
+                    Err(TempoError::InsecureBaseUrl { .. }) => "Use HTTPS".to_string(),
+                    Err(_) => "Check URL".to_string(),
+                }
             }
         }
         ConnectionField::JiraSiteUrl => {
             let value = state.connection_form.jira_site_url.value.trim();
             if value.is_empty() {
                 "Missing".to_string()
-            } else if value.starts_with("http://") {
-                "Use HTTPS".to_string()
             } else {
-                "Used to find account".to_string()
+                match validate_site_url(value) {
+                    Ok(()) => "Used to find account".to_string(),
+                    Err(JiraError::InsecureSiteUrl { .. }) => "Use HTTPS".to_string(),
+                    Err(_) => "Check URL".to_string(),
+                }
             }
         }
         ConnectionField::JiraEmail => {
@@ -327,7 +324,7 @@ pub fn selected_connection_help(state: &AppState) -> String {
             "Paste a Tempo token for the same region as the API URL.".to_string()
         }
         ConnectionField::TempoBaseUrl => {
-            "Usually https://api.eu.tempo.io. Match it to the token's region.".to_string()
+            "Usually https://api.eu.tempo.io. Leave it blank to use the default.".to_string()
         }
         ConnectionField::JiraSiteUrl => "Used to look up your Atlassian account ID.".to_string(),
         ConnectionField::JiraEmail => "Used only for the Jira account lookup.".to_string(),
@@ -437,22 +434,17 @@ pub fn start_end_display(
 }
 
 fn can_save_connection(state: &AppState) -> bool {
-    let jira = crate::storage::JiraSettings::normalized(
-        state.connection_form.jira_site_url.value.clone(),
-        state.connection_form.jira_email.value.clone(),
-        state.connection_form.jira_api_token.value.clone(),
-    );
     let tempo_api_token = state.connection_form.tempo_api_token.value.trim();
-    if tempo_api_token.is_empty() || !jira.is_configured() {
+    if tempo_api_token.is_empty()
+        || state.connection_form.jira_site_url.value.trim().is_empty()
+        || state.connection_form.jira_email.value.trim().is_empty()
+        || state.connection_form.jira_api_token.value.trim().is_empty()
+    {
         return false;
     }
 
-    JiraClient::new(&jira).is_ok()
-        && TempoClient::new(
-            state.connection_form.tempo_base_url.value.clone(),
-            tempo_api_token.to_string(),
-        )
-        .is_ok()
+    validate_site_url(&state.connection_form.jira_site_url.value).is_ok()
+        && validate_base_url(&state.connection_form.tempo_base_url.value).is_ok()
 }
 
 pub fn blank_placeholder(value: &str) -> String {

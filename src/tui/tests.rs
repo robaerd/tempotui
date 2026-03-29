@@ -369,6 +369,46 @@ fn saving_connection_settings_requires_successful_tempo_validation() {
 }
 
 #[test]
+fn saving_connection_settings_allows_blank_tempo_base_url() {
+    let store =
+        AppStateStore::new(std::env::temp_dir().join("tempotui-tui-connection-blank-base.toml"));
+    let mut app = TuiApp::new_with_hooks(
+        app_config(),
+        store,
+        PersistedState::default(),
+        successful_discoverer,
+        successful_tempo_verifier,
+    );
+    app.state
+        .connection_form
+        .tempo_api_token
+        .set("token".to_string());
+    app.state.connection_form.tempo_base_url.set(String::new());
+    app.state
+        .connection_form
+        .jira_site_url
+        .set("example.atlassian.net".to_string());
+    app.state
+        .connection_form
+        .jira_email
+        .set("me@example.com".to_string());
+    app.state
+        .connection_form
+        .jira_api_token
+        .set("jira-token".to_string());
+    app.state.connection_form.selected_field = 5;
+
+    app.dispatch(Action::Connection(ConnectionAction::ActivateSelected));
+    flush_connection_work(&mut app);
+
+    assert!(matches!(app.state.route, Route::Month));
+    assert_eq!(
+        app.state.persisted.tempo.base_url,
+        crate::storage::DEFAULT_TEMPO_BASE_URL
+    );
+}
+
+#[test]
 fn saved_connection_is_verified_in_background_on_startup() {
     let mut app = test_app(configured_state());
 

@@ -371,7 +371,7 @@ fn stored_state_to_persisted(
     })
 }
 
-fn normalize_tempo_base_url(value: &str) -> String {
+pub(crate) fn normalize_tempo_base_url(value: &str) -> String {
     let trimmed = value.trim().trim_end_matches('/');
     if trimmed.is_empty() {
         DEFAULT_TEMPO_BASE_URL.to_string()
@@ -380,7 +380,7 @@ fn normalize_tempo_base_url(value: &str) -> String {
     }
 }
 
-fn normalize_jira_site_url(value: &str) -> String {
+pub(crate) fn normalize_jira_site_url(value: &str) -> String {
     let trimmed = value.trim().trim_end_matches('/');
     if trimmed.is_empty() {
         String::new()

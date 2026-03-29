@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use chrono::NaiveDate;
 use reqwest::{
     StatusCode, Url,
@@ -6,7 +8,12 @@ use reqwest::{
 use serde::Deserialize;
 use thiserror::Error;
 
-use crate::http::{build_blocking_client, response_details, send_get_with_retry};
+use crate::{
+    http::{build_blocking_client, response_details, send_get_with_retry},
+    storage::normalize_tempo_base_url,
+};
+
+const MAX_PAGINATION_PAGES: usize = 1000;
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct TempoWorklog {
@@ -27,6 +34,8 @@ pub struct TempoClient {
 pub enum TempoError {
     #[error("Tempo base URL `{value}` isn't a valid URL.")]
     InvalidBaseUrl { value: String },
+    #[error("Tempo base URL `{value}` must use HTTPS.")]
+    InsecureBaseUrl { value: String },
     #[error("Couldn't create the Tempo client: {0}")]
     ClientBuild(#[source] reqwest::Error),
     #[error("Couldn't build the Tempo request URL.")]
@@ -39,6 +48,10 @@ pub enum TempoError {
         received_origin: String,
         url: String,
     },
+    #[error("Tempo pagination repeated the same URL: `{url}`.")]
+    PaginationLoop { url: String },
+    #[error("Tempo pagination exceeded {limit} pages. Last URL: `{url}`.")]
+    PaginationLimitExceeded { limit: usize, url: String },
     #[error("Tempo request to `{url}` failed: {source}")]
     Request {
         url: String,
@@ -75,9 +88,7 @@ struct PageMetadata {
 
 impl TempoClient {
     pub fn new(base_url: String, token: String) -> Result<Self, TempoError> {
-        let base_url = Url::parse(&base_url).map_err(|_| TempoError::InvalidBaseUrl {
-            value: base_url.clone(),
-        })?;
+        let base_url = parse_base_url(&normalize_tempo_base_url(&base_url))?;
         let client = build_blocking_client("tempotui/0.1.0").map_err(TempoError::ClientBuild)?;
 
         Ok(Self {
@@ -95,8 +106,13 @@ impl TempoClient {
     ) -> Result<Vec<TempoWorklog>, TempoError> {
         let mut next_url = Some(self.user_worklogs_url(account_id, from, to)?);
         let mut worklogs = Vec::new();
+        let mut visited_urls = HashSet::new();
+        let mut pages_loaded = 0;
 
         while let Some(url) = next_url {
+            register_page(&mut visited_urls, &url, pages_loaded)?;
+            pages_loaded += 1;
+
             let response = self.send(url.clone())?;
             let page = self.decode(url.clone(), response)?;
             worklogs.extend(page.results);
@@ -150,13 +166,15 @@ impl TempoClient {
     }
 
     fn parse_next_url(&self, value: &str) -> Result<Url, TempoError> {
-        match Url::parse(value) {
-            Ok(url) => {
-                self.ensure_same_origin(&url)?;
-                Ok(url)
-            }
-            Err(_) => self.base_url.join(value).map_err(|_| TempoError::UrlBuild),
-        }
+        let url = match Url::parse(value) {
+            Ok(url) => url,
+            Err(_) => self
+                .base_url
+                .join(value)
+                .map_err(|_| TempoError::UrlBuild)?,
+        };
+        self.ensure_same_origin(&url)?;
+        Ok(url)
     }
 
     fn ensure_same_origin(&self, next_url: &Url) -> Result<(), TempoError> {
@@ -172,6 +190,10 @@ impl TempoClient {
     }
 }
 
+pub(crate) fn validate_base_url(value: &str) -> Result<(), TempoError> {
+    parse_base_url(&normalize_tempo_base_url(value)).map(|_| ())
+}
+
 fn same_origin(left: &Url, right: &Url) -> bool {
     left.scheme() == right.scheme()
         && left.host_str() == right.host_str()
@@ -184,6 +206,44 @@ fn origin_string(url: &Url) -> String {
         Some(port) => format!("{}://{}:{}", url.scheme(), host, port),
         None => format!("{}://{}", url.scheme(), host),
     }
+}
+
+fn parse_base_url(value: &str) -> Result<Url, TempoError> {
+    let base_url = Url::parse(value).map_err(|_| TempoError::InvalidBaseUrl {
+        value: value.to_string(),
+    })?;
+    if base_url.scheme() != "https" && !is_local_host(&base_url) {
+        return Err(TempoError::InsecureBaseUrl {
+            value: value.to_string(),
+        });
+    }
+
+    Ok(base_url)
+}
+
+fn is_local_host(url: &Url) -> bool {
+    matches!(url.host_str(), Some("127.0.0.1" | "localhost"))
+}
+
+fn register_page(
+    visited_urls: &mut HashSet<String>,
+    url: &Url,
+    pages_loaded: usize,
+) -> Result<(), TempoError> {
+    if pages_loaded >= MAX_PAGINATION_PAGES {
+        return Err(TempoError::PaginationLimitExceeded {
+            limit: MAX_PAGINATION_PAGES,
+            url: url.to_string(),
+        });
+    }
+
+    if !visited_urls.insert(url.to_string()) {
+        return Err(TempoError::PaginationLoop {
+            url: url.to_string(),
+        });
+    }
+
+    Ok(())
 }
 
 fn http_status_error(url: Url, response: Response) -> TempoError {
@@ -201,6 +261,7 @@ mod tests {
     use super::*;
     use mockito::{Matcher, Server};
     use std::{
+        collections::HashSet,
         io::{Read, Write},
         net::TcpListener,
         thread,
@@ -303,6 +364,21 @@ mod tests {
     }
 
     #[test]
+    fn rejects_non_https_remote_urls() {
+        let err = TempoClient::new("http://example.com".to_string(), "test-token".to_string())
+            .unwrap_err();
+
+        assert!(matches!(err, TempoError::InsecureBaseUrl { .. }));
+    }
+
+    #[test]
+    fn blank_base_url_uses_the_default_tempo_origin() {
+        let client = TempoClient::new(String::new(), "test-token".to_string()).unwrap();
+
+        assert_eq!(client.base_url.as_str(), "https://api.eu.tempo.io/");
+    }
+
+    #[test]
     fn rejects_cross_origin_pagination_urls() {
         let mut server = Server::new();
 
@@ -344,6 +420,121 @@ mod tests {
         let message = err.to_string();
         assert!(message.contains("different origin"));
         assert!(message.contains("example.com"));
+    }
+
+    #[test]
+    fn rejects_protocol_relative_pagination_urls() {
+        let mut server = Server::new();
+
+        let first = server
+            .mock("GET", "/4/worklogs/user/test-user")
+            .match_header("authorization", "Bearer test-token")
+            .match_query(Matcher::AllOf(vec![
+                Matcher::UrlEncoded("from".into(), "2026-03-01".into()),
+                Matcher::UrlEncoded("to".into(), "2026-03-31".into()),
+                Matcher::UrlEncoded("limit".into(), "100".into()),
+            ]))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                r#"{
+                    "metadata": {
+                        "count": 1,
+                        "offset": 0,
+                        "limit": 100,
+                        "next": "//example.com/4/worklogs/user/test-user?offset=100"
+                    },
+                    "results": [
+                        { "startDate": "2026-03-01", "timeSpentSeconds": 3600 }
+                    ]
+                }"#,
+            )
+            .create();
+
+        let client = TempoClient::new(server.url(), "test-token".to_string()).unwrap();
+        let err = client
+            .fetch_worklogs_for_user(
+                "test-user",
+                NaiveDate::from_ymd_opt(2026, 3, 1).unwrap(),
+                NaiveDate::from_ymd_opt(2026, 3, 31).unwrap(),
+            )
+            .unwrap_err();
+
+        first.assert();
+        assert!(matches!(err, TempoError::PaginationOriginMismatch { .. }));
+    }
+
+    #[test]
+    fn rejects_repeated_pagination_urls() {
+        let mut server = Server::new();
+
+        let first = server
+            .mock("GET", "/4/worklogs/user/test-user")
+            .match_header("authorization", "Bearer test-token")
+            .match_query(Matcher::AllOf(vec![
+                Matcher::UrlEncoded("from".into(), "2026-03-01".into()),
+                Matcher::UrlEncoded("to".into(), "2026-03-31".into()),
+                Matcher::UrlEncoded("limit".into(), "100".into()),
+            ]))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                r#"{
+                    "metadata": {
+                        "count": 1,
+                        "offset": 0,
+                        "limit": 100,
+                        "next": "/loop"
+                    },
+                    "results": [
+                        { "startDate": "2026-03-01", "timeSpentSeconds": 3600 }
+                    ]
+                }"#,
+            )
+            .create();
+        let second = server
+            .mock("GET", "/loop")
+            .match_header("authorization", "Bearer test-token")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                r#"{
+                    "metadata": {
+                        "count": 1,
+                        "offset": 100,
+                        "limit": 100,
+                        "next": "/loop"
+                    },
+                    "results": [
+                        { "startDate": "2026-03-02", "timeSpentSeconds": 7200 }
+                    ]
+                }"#,
+            )
+            .create();
+
+        let client = TempoClient::new(server.url(), "test-token".to_string()).unwrap();
+        let err = client
+            .fetch_worklogs_for_user(
+                "test-user",
+                NaiveDate::from_ymd_opt(2026, 3, 1).unwrap(),
+                NaiveDate::from_ymd_opt(2026, 3, 31).unwrap(),
+            )
+            .unwrap_err();
+
+        first.assert();
+        second.assert();
+        assert!(matches!(err, TempoError::PaginationLoop { .. }));
+    }
+
+    #[test]
+    fn register_page_rejects_limit_exceeded() {
+        let mut visited = HashSet::new();
+        let url =
+            Url::parse("https://api.eu.tempo.io/4/worklogs/user/test-user?offset=1000").unwrap();
+
+        let err = register_page(&mut visited, &url, MAX_PAGINATION_PAGES).unwrap_err();
+
+        assert!(matches!(err, TempoError::PaginationLimitExceeded { .. }));
     }
 
     #[test]

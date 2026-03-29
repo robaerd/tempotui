@@ -7,7 +7,7 @@ use thiserror::Error;
 
 use crate::{
     http::{build_blocking_client, response_details, send_get_with_retry},
-    storage::JiraSettings,
+    storage::{JiraSettings, normalize_jira_site_url},
 };
 
 #[derive(Debug)]
@@ -71,14 +71,7 @@ impl JiraClient {
             return Err(JiraError::MissingApiToken);
         }
 
-        let site_url = Url::parse(&settings.site_url).map_err(|_| JiraError::InvalidSiteUrl {
-            value: settings.site_url.clone(),
-        })?;
-        if site_url.scheme() != "https" && !is_local_host(&site_url) {
-            return Err(JiraError::InsecureSiteUrl {
-                value: settings.site_url.clone(),
-            });
-        }
+        let site_url = parse_site_url(&normalize_jira_site_url(&settings.site_url))?;
 
         let client = build_blocking_client("tempotui/0.1.0").map_err(JiraError::ClientBuild)?;
 
@@ -138,8 +131,25 @@ impl JiraClient {
     }
 }
 
+pub(crate) fn validate_site_url(value: &str) -> Result<(), JiraError> {
+    parse_site_url(&normalize_jira_site_url(value)).map(|_| ())
+}
+
 fn is_local_host(url: &Url) -> bool {
     matches!(url.host_str(), Some("127.0.0.1" | "localhost"))
+}
+
+fn parse_site_url(value: &str) -> Result<Url, JiraError> {
+    let site_url = Url::parse(value).map_err(|_| JiraError::InvalidSiteUrl {
+        value: value.to_string(),
+    })?;
+    if site_url.scheme() != "https" && !is_local_host(&site_url) {
+        return Err(JiraError::InsecureSiteUrl {
+            value: value.to_string(),
+        });
+    }
+
+    Ok(site_url)
 }
 
 fn http_status_error(url: Url, response: Response) -> JiraError {

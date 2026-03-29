@@ -1,10 +1,10 @@
 use chrono::Timelike;
 
 use crate::{
-    jira::JiraClient,
+    jira::validate_site_url,
     report::statutory_break_seconds,
     storage::{JiraSettings, TempoSettings},
-    tempo::TempoClient,
+    tempo::validate_base_url,
 };
 
 use super::{
@@ -833,12 +833,8 @@ fn can_save_connection(state: &AppState) -> bool {
         return false;
     }
 
-    JiraClient::new(&jira).is_ok()
-        && TempoClient::new(
-            state.connection_form.tempo_base_url.value.clone(),
-            tempo_api_token.to_string(),
-        )
-        .is_ok()
+    validate_site_url(&jira.site_url).is_ok()
+        && validate_base_url(&state.connection_form.tempo_base_url.value).is_ok()
 }
 
 fn compact_error_message(value: &str, max_chars: usize) -> String {

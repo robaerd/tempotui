@@ -141,7 +141,7 @@ fn spawn_loader(client: TempoClient, account_id: String) -> LoaderRuntime {
 
     thread::spawn(move || {
         while let Ok(request) = request_rx.recv() {
-            match request {
+            match collapse_pending_load_request(request, &request_rx) {
                 LoaderRequest::Load { request_id, month } => {
                     let result = client
                         .fetch_worklogs_for_user(&account_id, month.start, month.end)
@@ -159,5 +159,48 @@ fn spawn_loader(client: TempoClient, account_id: String) -> LoaderRuntime {
     LoaderRuntime {
         tx: request_tx,
         rx: response_rx,
+    }
+}
+
+fn collapse_pending_load_request(
+    mut request: LoaderRequest,
+    request_rx: &Receiver<LoaderRequest>,
+) -> LoaderRequest {
+    for next_request in request_rx.try_iter() {
+        request = next_request;
+    }
+
+    request
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn collapse_pending_load_request_keeps_latest_month() {
+        let (request_tx, request_rx) = mpsc::channel();
+        let first = LoaderRequest::Load {
+            request_id: 1,
+            month: MonthWindow::from_label("2026-03").unwrap(),
+        };
+        request_tx
+            .send(LoaderRequest::Load {
+                request_id: 2,
+                month: MonthWindow::from_label("2026-04").unwrap(),
+            })
+            .unwrap();
+        request_tx
+            .send(LoaderRequest::Load {
+                request_id: 3,
+                month: MonthWindow::from_label("2026-05").unwrap(),
+            })
+            .unwrap();
+
+        let LoaderRequest::Load { request_id, month } =
+            collapse_pending_load_request(first, &request_rx);
+
+        assert_eq!(request_id, 3);
+        assert_eq!(month.label, "2026-05");
     }
 }
