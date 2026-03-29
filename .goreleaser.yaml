@@ -5,6 +5,7 @@ builds:
   - id: darwin
     builder: rust
     binary: tempotui
+    command: build
     targets:
       - x86_64-apple-darwin
       - aarch64-apple-darwin
