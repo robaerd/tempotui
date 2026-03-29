@@ -1,5 +1,7 @@
 /target
 /dist
+.zig-cache/
+zig-out/
 .env
 .env.*
 .idea
